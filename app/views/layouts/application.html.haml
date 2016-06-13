@@ -1,0 +1,19 @@
+!!!
+%html
+  %head
+    %title YourApp
+    = csrf_meta_tags
+    = action_cable_meta_tag
+    = stylesheet_link_tag    'application', media: 'all', 'data-turbolinks-track' => 'reload'
+    = javascript_include_tag 'application', 'data-turbolinks-track' => 'reload'
+  %body
+    = nav_bar brand: 'Testapp', responsive: true do
+      = menu_group pull: :right do
+        = menu_item "Home", root_path
+        - if current_user
+          = menu_item "Sign Out", destroy_user_session_path, method: :delete
+        - else
+          = menu_item "Register", new_user_registration_path
+          = menu_item "Sign In", new_user_session_path
+    .container
+      = yield
