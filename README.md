@@ -1,24 +1,6 @@
-# README
+# Rails5App
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
+> This Rails 5 app was one-liner created with [Rails 5 template](https://github.com/midN/rails_templates/blob/master/rails5/base.rb)
 
-Things you may want to cover:
-
-* Ruby version
-
-* System dependencies
-
-* Configuration
-
-* Database creation
-
-* Database initialization
-
-* How to run the test suite
-
-* Services (job queues, cache servers, search engines, etc.)
-
-* Deployment instructions
-
-* ...
+Additional things that were not in Template:
+* Unicorn replaced by Puma due to CHEF-DEPLOYMENT reasons.

@@ -80,6 +80,7 @@ test:
 #
 production:
   <<: *default
+  host: <%= ENV['RAILS5APP_DATABASE_HOST'] %>
   database: rails5app_production
   username: rails5app
   password: <%= ENV['RAILS5APP_DATABASE_PASSWORD'] %>
