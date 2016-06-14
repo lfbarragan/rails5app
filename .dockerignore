@@ -1,0 +1,9 @@
+tmp/*
+log/*
+chef-deploy.sh
+cleanup.sh
+docker-deploy.sh
+Dockerimage
+server.csr
+server.key
+server.crt

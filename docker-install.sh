@@ -12,15 +12,6 @@ BOLD="\033[1m"
 RED="\033[1;31m"
 NC="\033[0m"
 
-## Chef
-chef_link=https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.14.25-1_amd64.deb
-chef_client='cookbook_path "/var/chef/cookbooks"
-local_mode  "true"
-log_level :info'
-railsapp='{
-  "run_list": [ "recipe[railsapp::rails]" ]
-}'
-
 # Functions
 function retry {
   local n=1
@@ -39,33 +30,6 @@ function retry {
   done
 }
 
-function chef_configuration {
-  echo -e "$GREEN Downloading and installing chefdk. $NC"
-  ssh ubuntu@$1 "wget -q $chef_link && sudo dpkg -i chefdk_0.14.25-1_amd64.deb > /dev/null && rm chefdk_0.14.25-1_amd64.deb"
-
-  echo -e "$GREEN Creating chef configuration list. $NC"
-  ssh ubuntu@$1 "sudo mkdir -p /var/chef"
-  echo -e "$chef_client" | ssh ubuntu@$1 "sudo tee /var/chef/client.rb"
-
-  echo -e "$GREEN Cloning cookbooks to server. $NC"
-  ssh ubuntu@$1 "sudo apt-get -yq update > /dev/null 2>&1 && sudo apt-get -yq install git > /dev/null 2>&1"
-  ssh ubuntu@$1 "git clone https://github.com/midN/chef_cookbooks.git /home/ubuntu/cookbooks"
-  ssh ubuntu@$1 "sudo cp -aT /home/ubuntu/cookbooks /var/chef/cookbooks && sudo rm -rf /home/ubuntu/cookbooks"
-
-  echo -e "$GREEN Adding node info to Chef. $NC"
-  echo -e "$railsapp" | ssh ubuntu@$1 "sudo tee /var/chef/base.json"
-
-  echo -e "$GREEN Installing berks dependencies. $NC"
-  ssh ubuntu@$1 "cd /var/chef/cookbooks/railsapp && berks vendor"
-  set +e
-  ssh ubuntu@$1 "mv /var/chef/cookbooks/railsapp/berks-cookbooks/* /var/chef/cookbooks" 2> /dev/null
-  ssh ubuntu@$1 "rm -rf /var/chef/cookbooks/railsapp/berks-cookbooks"
-  set -e
-
-  echo -e "$GREEN Running chef-cliet in local mode. $NC"
-  ssh ubuntu@$1 "sudo chef-client -c /var/chef/client.rb -j /var/chef/base.json"
-}
-
 function self_signed_ssl {
   export PASSPHRASE=1234
   subj="/C=US/ST=Denial/L=Springfield/O=Dis/CN=suchwowapp.com"
@@ -74,7 +38,6 @@ function self_signed_ssl {
   openssl rsa -in server.key -out server.key -passin env:PASSPHRASE
   openssl x509 -req -days 3650 -in server.csr -signkey server.key -out server.crt
 }
-
 
 # Script
 echo -e "$BOLD NB! Your 'default' security group in AWS must allow SSH login from your IP. $NC"
@@ -99,10 +62,21 @@ if aws ec2 describe-instances > /dev/null; then
   echo -e "$GREEN Booted up AWS instance might be still not SSH accessible for a while. Retrying SSH for 5 times if it doesn't work. $NC"
   retry ssh -q ubuntu@$instance_ip exit
 
-  echo -e "$GREEN Instance is finally SSH accessible, running chef configuration. $NC"
-  chef_configuration $instance_ip $imagetype
+  echo -e "$GREEN Instance is finally SSH accessible, installing docker. $NC"
+  ssh ubuntu@$instance_ip "sudo apt-get update -q && sudo apt-get -yq install curl git apt-transport-https ca-certificates"
+  ssh ubuntu@$instance_ip "sudo apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D"
+  ssh ubuntu@$instance_ip "echo 'deb https://apt.dockerproject.org/repo ubuntu-trusty main' | sudo tee /etc/apt/sources.list.d/docker.list"
+  ssh ubuntu@$instance_ip "sudo apt-get update -q && sudo apt-get -yq install docker-engine"
 
-  echo -e "$GREEN Chef setup has finished. $NC"
+  echo -e "$GREEN Pulling latest docker image. $NC"
+  ssh ubuntu@$instance_ip "sudo mkdir -p /opt/webapps/suchwowapp"
+  ssh ubuntu@$instance_ip "sudo git clone https://github.com/midN/rails5app.git /opt/webapps/suchwowapp"
+  ssh ubuntu@$instance_ip "sudo docker pull m1dn/suchwowapp:master"
+
+  echo -e "$GREEN Running Rails app + Postgres $NC"
+  ssh ubuntu@$instance_ip "sudo docker run -d --name pg -e POSTGRES_USER=rails5app -e POSTGRES_DB=rails5app_production -e POSTGRES_PASSWORD=thisisnotthebestpasswordintheworldthisisjustatribute postgres"
+  ssh ubuntu@$instance_ip "sudo docker run -d --name suchwowapp -e RAILS5APP_DATABASE_HOST=pg -e RAILS5APP_DATABASE_PASSWORD=thisisnotthebestpasswordintheworldthisisjustatribute -e DISABLE_DATABASE_ENVIRONMENT_CHECK=1 --link pg:pg -p 8080:8080 m1dn/suchwowapp:master 'bundle exec rake db:schema:load && bundle exec rake db:migrate && bundle exec unicorn -p 8080'"
+  ssh ubuntu@$instance_ip "sudo docker run -d --name nginx --link suchwowapp:suchwowapp -p 80:80 -p 443:443 -v /opt/webapps/suchwowapp/files/nginx.conf:/etc/nginx/conf.d/default.conf nginx"
 
   echo -e "$GREEN Creating ssl cert, load-balancer. Using first found Subnet. $NC"
   self_signed_ssl
@@ -114,7 +88,7 @@ if aws ec2 describe-instances > /dev/null; then
   dns=`aws elb create-load-balancer --load-balancer-name suchwowapp --listeners "Protocol=HTTP,LoadBalancerPort=80,InstanceProtocol=HTTP,InstancePort=80" "Protocol=HTTPS,LoadBalancerPort=443,InstanceProtocol=HTTP,InstancePort=80,SSLCertificateId=$sslarn" --subnets $subnet --output text --query 'DNSName'`
 
   echo -e "$GREEN Adding instance to ELB. $NC"
-  aws elb configure-health-check --load-balancer-name suchwowapp --health-check Target=HTTP:8080/,Interval=30,UnhealthyThreshold=2,HealthyThreshold=2,Timeout=10
+  aws elb configure-health-check --load-balancer-name suchwowapp --health-check Target=HTTP:8080/,Interval=30,UnhealthyThreshold=2,HealthyThreshold=2,Timeout=3
   aws elb register-instances-with-load-balancer --load-balancer-name suchwowapp --instances $instance_id
 
   echo -e "$GREEN Waiting for ELB to become healthy. $NC"
