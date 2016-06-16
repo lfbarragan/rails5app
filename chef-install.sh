@@ -3,8 +3,9 @@ set -e
 
 # Variables
 ## AWS
-AMI=ami-47a23a30
+AMI=REPLACE_ME
 ITYPE=t2.micro
+SUBNET=REPLACE_ME
 
 ## Colors
 GREEN="\033[1;32m"
@@ -24,7 +25,7 @@ railsapp='{
 # Functions
 function retry {
   local n=1
-  local max=5
+  local max=10
   local delay=5
   while true; do
     "$@" && break || {
@@ -41,7 +42,7 @@ function retry {
 
 function chef_configuration {
   echo -e "$GREEN Downloading and installing chefdk. $NC"
-  ssh ubuntu@$1 "wget -q $chef_link && sudo dpkg -i chefdk_0.14.25-1_amd64.deb > /dev/null && rm chefdk_0.14.25-1_amd64.deb"
+  ssh ubuntu@$1 "wget --no-check-certificate -q $chef_link && sudo dpkg -i chefdk_0.14.25-1_amd64.deb > /dev/null && rm chefdk_0.14.25-1_amd64.deb"
 
   echo -e "$GREEN Creating chef configuration list. $NC"
   ssh ubuntu@$1 "sudo mkdir -p /var/chef"
@@ -56,7 +57,7 @@ function chef_configuration {
   echo -e "$railsapp" | ssh ubuntu@$1 "sudo tee /var/chef/base.json"
 
   echo -e "$GREEN Installing berks dependencies. $NC"
-  ssh ubuntu@$1 "cd /var/chef/cookbooks/railsapp && berks vendor"
+  ssh ubuntu@$1 "export LC_CTYPE=en_US.UTF-8; cd /var/chef/cookbooks/railsapp && berks vendor"
   set +e
   ssh ubuntu@$1 "mv /var/chef/cookbooks/railsapp/berks-cookbooks/* /var/chef/cookbooks" 2> /dev/null
   ssh ubuntu@$1 "rm -rf /var/chef/cookbooks/railsapp/berks-cookbooks"
@@ -88,7 +89,7 @@ if aws ec2 describe-instances > /dev/null; then
 
   # Create a new instance
   echo -e "$GREEN Creating a new instance. $NC"
-  instance_id=$(aws ec2 run-instances --image-id $AMI --count 1 --instance-type $ITYPE --key-name $keypair --output text --query 'Instances[*].InstanceId')
+  instance_id=$(aws ec2 run-instances --subnet-id $SUBNET --image-id $AMI --count 1 --instance-type $ITYPE --key-name $keypair --output text --query 'Instances[*].InstanceId')
   aws ec2 create-tags --resources $instance_id --tags Key=Name,Value="SuchWowApp"
 
   echo -e "$GREEN Instance launched, waiting for it to boot. $NC"
